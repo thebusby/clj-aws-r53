@@ -2,7 +2,7 @@
 
 # clj-aws-r53
 
-A Clojure library for accessing Amazon Route53, based on the official
+A Clojure library for accessing Amazon Route 53, based on the official
 AWS Java SDK and borrowing heavily from [clj-aws-ec2][] and James
 Reeves's [clj-aws-s3][] library.
 
