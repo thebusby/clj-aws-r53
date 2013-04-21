@@ -8,6 +8,11 @@
   (:import com.amazonaws.AmazonServiceException
            com.amazonaws.auth.BasicAWSCredentials
            com.amazonaws.services.route53.AmazonRoute53Client
+           com.amazonaws.services.route53.model.Change
+           com.amazonaws.services.route53.model.ChangeBatch
+           com.amazonaws.services.route53.model.ChangeResourceRecordSetsRequest
+           com.amazonaws.services.route53.model.ResourceRecord
+           com.amazonaws.services.route53.model.ResourceRecordSet
            com.amazonaws.AmazonServiceException
            )
 
@@ -88,3 +93,34 @@
   "Returns a Clojure map containing the details of an AmazonServiceException"
   [& exceptions]
   (map to-map exceptions))
+
+
+;;
+;; 
+;; 
+
+(defn change-resource-record-sets
+  ""
+  [cred zone-id changes]
+ (.changeResourceRecordSets (route53-client cred) (ChangeResourceRecordSetsRequest. zone-id (ChangeBatch. changes))))
+
+
+
+(defn create-change
+  ""
+  ([action resource-record-name resource-record-type value ]
+     (Change. action (doto (ResourceRecordSet. resource-record-name resource-record-type)
+                       (.setResourceRecords [ (ResourceRecord. value) ]))))
+  ([action resource-params]
+     (Change. action ((mapper-> ResourceRecordSet) resource-params))))
+
+
+;; http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/RRSchanges.html
+
+;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/AmazonRoute53Client.html
+
+;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/Change.html
+
+;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/ResourceRecordSet.html
+
+;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/ResourceRecord.html
