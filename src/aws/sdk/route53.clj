@@ -11,6 +11,9 @@
            com.amazonaws.services.route53.model.Change
            com.amazonaws.services.route53.model.ChangeBatch
            com.amazonaws.services.route53.model.ChangeResourceRecordSetsRequest
+           com.amazonaws.services.route53.model.GetHostedZoneRequest
+           com.amazonaws.services.route53.model.HostedZone
+           com.amazonaws.services.route53.model.ListResourceRecordSetsRequest
            com.amazonaws.services.route53.model.ResourceRecord
            com.amazonaws.services.route53.model.ResourceRecordSet
            com.amazonaws.AmazonServiceException
@@ -22,11 +25,12 @@
 (defn- route53-client*
   "Create an AmazonRoute53Client instance from a map of credentials."
   [cred]
-  (let [client (AmazonRoute53Client.
-                (BasicAWSCredentials.
-                 (:access-key cred)
-                 (:secret-key cred)))]
-    client))
+  (if (:access-key cred)
+    (AmazonRoute53Client.
+     (BasicAWSCredentials.
+      (:access-key cred)
+      (:secret-key cred)))
+    (AmazonRoute53Client.)))
 
 (def ^{:private true}
   route53-client
@@ -77,6 +81,13 @@
   [type]
   `(fn [~'params] (set-fields (new ~type) (map->ObjectGraph ~'params))))
 
+(defn- mapper
+  ""
+  [key]
+  (let [mappers {}]
+    (if (contains? mappers key) (mapper key) identity)))
+
+
 ;;
 ;; exceptions
 ;;
@@ -96,31 +107,100 @@
 
 
 ;;
+;; zones
 ;; 
-;; 
+
+(extend-protocol Mappable
+  HostedZone
+  (to-map [hz]
+    {:id (.getId hz)
+     :name (.getName hz)
+     :caller-reference (.getCallerReference hz)
+     :config-comment (.getComment (.getConfig hz))})
+  ResourceRecordSet
+  (to-map [rrs]
+    {:name (.getName rrs)
+     :region (.getRegion rrs)
+     :resource-records (map (fn [^ResourceRecord x] (.getValue x)) (.getResourceRecords rrs))
+     :set-identifier (.getSetIdentifier rrs)
+     :ttl (.getTTL rrs)
+     :type (.getType rrs)
+     :weight (.getWeight rrs)}))
+
+(defn list-hosted-zones
+  "List hosted zones and their zone-id's.
+
+   E.g.:
+   (list-hosted-zones cred)
+
+   Structure returned will appear like:
+   ({:id \"Z119FXR5L1SM7T\", 
+     :name \"domain.com.\", 
+     :caller-reference \"E7CB34E9-E1B9-0096-B6D9-F6D256654A0E\", 
+     :config-comment \"Comment in here\"})"
+  [cred]
+  (map to-map (.getHostedZones (.listHostedZones (route53-client cred)))))
+
+(defn list-resource-record-sets 
+  "List zone resource record sets.
+
+   E.g.:
+   (list-resource-record-sets cred \"Z119FXR5L1SM7T\")
+
+   Structure returned will appear like:
+    ({:name \"domain.com.\",
+      :region nil,
+      :resource-records (\"ns-1016.awsdns-63.net.\" ... ),
+      :set-identifier nil,
+      :ttl 172800,
+      :type \"NS\",
+      :weight nil}
+     {:name \"domain.com.\",
+      :region nil,
+      :resource-records (\"ns-1016.awsdns-63.net. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400\"),
+      :set-identifier nil,
+      :ttl 900,
+      :type \"SOA\",
+      :weight nil}
+     {:name \"www.domain.com.\",
+      :region nil,
+      :resource-records (\"ec2-50-14-27-88.compute-1..amazonaws.com\"),
+      :set-identifier nil,
+      :ttl 300,
+      :type \"CNAME\",
+      :weight nil}
+      ...)"
+  [cred zone-id]
+  (map to-map (.getResourceRecordSets (.listResourceRecordSets (route53-client cred) (ListResourceRecordSetsRequest. zone-id)))))
 
 (defn change-resource-record-sets
-  ""
-  [cred zone-id changes]
- (.changeResourceRecordSets (route53-client cred) (ChangeResourceRecordSetsRequest. zone-id (ChangeBatch. changes))))
+  "Apply DNS changes to a zone.
 
+   E.g.:
+   (change-resource-record-sets cred \"Z119FXR5L1SM7T\"
+                                (create-change \"CREATE\" {:type \"CNAME\" 
+                                                           :name \"search.domain.com.\" 
+                                                           :resource-records [(create-resource-record \"www.google.com\") ]
+                                                           :t-t-l (long 300)}))"
+  [cred zone-id & changes]
+  (.changeResourceRecordSets (route53-client cred) (ChangeResourceRecordSetsRequest. zone-id (ChangeBatch. changes))))
 
+(defn create-resource-record
+  "Create a ResourceRecord object containing a single value.
+
+   E.g.:
+   (create-resource-record \"127.0.0.1\")"
+  [value]
+  (ResourceRecord. value))
 
 (defn create-change
-  ""
-  ([action resource-record-name resource-record-type value ]
-     (Change. action (doto (ResourceRecordSet. resource-record-name resource-record-type)
-                       (.setResourceRecords [ (ResourceRecord. value) ]))))
-  ([action resource-params]
-     (Change. action ((mapper-> ResourceRecordSet) resource-params))))
+  "Create a DNS change record. 
+   Note: 'TTL' needs to use the :t-t-l keyword, and it's value must be a Long.
 
-
-;; http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/RRSchanges.html
-
-;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/AmazonRoute53Client.html
-
-;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/Change.html
-
-;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/ResourceRecordSet.html
-
-;; http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/services/route53/model/ResourceRecord.html
+   E.g.:
+    (create-change \"DELETE\" {:type \"A\" 
+                               :name \"localhost.domain.com.\" 
+                               :resource-records [(create-resource-record \"127.0.0.1\") ]
+                               :t-t-l (long 300)}))"
+  [action resource-params]
+     (Change. action ((mapper-> ResourceRecordSet) resource-params)))
